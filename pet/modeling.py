@@ -23,6 +23,15 @@ import numpy as np
 import torch
 from sklearn.metrics import f1_score
 from transformers.data.metrics import simple_accuracy
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    fbeta_score,
+    roc_auc_score,
+    roc_curve,
+    precision_score,
+    recall_score,
+)
 
 import log
 from pet.utils import InputExample, exact_match, save_logits, save_predictions, softmax, LogitsList, set_seed, eq_div
@@ -179,15 +188,18 @@ def train_ipet(ensemble_model_config: WrapperConfig, ensemble_train_config: Trai
         gen_output_dir = os.path.join(output_dir, f'g{gen}')
 
         # Step 1: Train an ensemble of models corresponding to individual patterns
-        ipet_data_dir = os.path.join(output_dir, f'g{gen - 1}', 'next-gen-train-data') if gen > 0 else None
+        ipet_data_dir = os.path.join(
+            output_dir, f'g{gen - 1}', 'next-gen-train-data') if gen > 0 else None
         train_pet_ensemble(ensemble_model_config, ensemble_train_config, ensemble_eval_config, pattern_ids,
                            gen_output_dir, ipet_data_dir=ipet_data_dir,
                            repetitions=ensemble_repetitions, train_data=train_data, unlabeled_data=unlabeled_data,
                            eval_data=eval_data, do_train=do_train, do_eval=do_eval, save_unlabeled_logits=True)
 
         # Step 2: Use the model to annotate examples for the next generation
-        original_data_size = len(train_data) if train_data else 10 / ipet_config.scale_factor
-        num_new_examples = int(original_data_size * (ipet_config.scale_factor ** (gen + 1)) - len(train_data))
+        original_data_size = len(
+            train_data) if train_data else 10 / ipet_config.scale_factor
+        num_new_examples = int(
+            original_data_size * (ipet_config.scale_factor ** (gen + 1)) - len(train_data))
         generate_ipet_train_sets(train_data=train_data, unlabeled_data=unlabeled_data,
                                  labels=ensemble_model_config.label_list, logits_dir=gen_output_dir,
                                  output_dir=os.path.join(gen_output_dir, 'next-gen-train-data'), reduction=reduction,
@@ -329,10 +341,12 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
             model_config.pattern_id = pattern_id
             results_dict = {}
 
-            pattern_iter_output_dir = "{}/p{}-i{}".format(output_dir, pattern_id, iteration)
+            pattern_iter_output_dir = "{}/p{}-i{}".format(
+                output_dir, pattern_id, iteration)
 
             if os.path.exists(pattern_iter_output_dir):
-                logger.warning(f"Path {pattern_iter_output_dir} already exists, skipping it...")
+                logger.warning(
+                    f"Path {pattern_iter_output_dir} already exists, skipping it...")
                 continue
 
             if not os.path.exists(pattern_iter_output_dir):
@@ -343,7 +357,8 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
             # Training
             if do_train:
                 if ipet_data_dir:
-                    p = os.path.join(ipet_data_dir, 'p{}-i{}-train.bin'.format(pattern_id, iteration))
+                    p = os.path.join(
+                        ipet_data_dir, 'p{}-i{}-train.bin'.format(pattern_id, iteration))
                     ipet_train_data = InputExample.load_examples(p)
                     for example in ipet_train_data:
                         example.logits = None
@@ -357,15 +372,20 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
                 with open(os.path.join(pattern_iter_output_dir, 'results.txt'), 'w') as fh:
                     fh.write(str(results_dict))
 
-                logger.info("Saving trained model at {}...".format(pattern_iter_output_dir))
+                logger.info("Saving trained model at {}...".format(
+                    pattern_iter_output_dir))
                 wrapper.save(pattern_iter_output_dir)
-                train_config.save(os.path.join(pattern_iter_output_dir, 'train_config.json'))
-                eval_config.save(os.path.join(pattern_iter_output_dir, 'eval_config.json'))
+                train_config.save(os.path.join(
+                    pattern_iter_output_dir, 'train_config.json'))
+                eval_config.save(os.path.join(
+                    pattern_iter_output_dir, 'eval_config.json'))
                 logger.info("Saving complete")
 
                 if save_unlabeled_logits:
-                    logits = evaluate(wrapper, unlabeled_data, eval_config)['logits']
-                    save_logits(os.path.join(pattern_iter_output_dir, 'logits.txt'), logits)
+                    logits = evaluate(wrapper, unlabeled_data,
+                                      eval_config)['logits']
+                    save_logits(os.path.join(
+                        pattern_iter_output_dir, 'logits.txt'), logits)
 
                 if not do_eval:
                     wrapper.model = None
@@ -376,15 +396,20 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
             if do_eval:
                 logger.info("Starting evaluation...")
                 if not wrapper:
-                    wrapper = TransformerModelWrapper.from_pretrained(pattern_iter_output_dir)
+                    wrapper = TransformerModelWrapper.from_pretrained(
+                        pattern_iter_output_dir)
 
-                eval_result = evaluate(wrapper, eval_data, eval_config, priming_data=train_data)
+                eval_result = evaluate(
+                    wrapper, eval_data, eval_config, priming_data=train_data)
 
-                save_predictions(os.path.join(pattern_iter_output_dir, 'predictions.jsonl'), wrapper, eval_result)
-                save_logits(os.path.join(pattern_iter_output_dir, 'eval_logits.txt'), eval_result['logits'])
+                save_predictions(os.path.join(
+                    pattern_iter_output_dir, 'predictions.jsonl'), wrapper, eval_result)
+                save_logits(os.path.join(pattern_iter_output_dir,
+                            'eval_logits.txt'), eval_result['logits'])
 
                 scores = eval_result['scores']
-                logger.info("--- RESULT (pattern_id={}, iteration={}) ---".format(pattern_id, iteration))
+                logger.info(
+                    "--- RESULT (pattern_id={}, iteration={}) ---".format(pattern_id, iteration))
                 logger.info(scores)
 
                 results_dict['test_set_after_training'] = scores
@@ -422,7 +447,8 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
     :return: a dictionary containing the global step, average loss and (optionally) results on the train set
     """
 
-    device = torch.device(config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
     if not ipet_train_data:
         ipet_train_data = []
 
@@ -431,7 +457,8 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
     model.model.to(device)
 
     if train_data and return_train_set_results:
-        results_dict['train_set_before_training'] = evaluate(model, train_data, eval_config)['scores']['acc']
+        results_dict['train_set_before_training'] = evaluate(
+            model, train_data, eval_config)['scores']['acc']
 
     all_train_data = train_data + ipet_train_data
 
@@ -461,7 +488,8 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
         results_dict['average_loss'] = tr_loss
 
     if train_data and return_train_set_results:
-        results_dict['train_set_after_training'] = evaluate(model, train_data, eval_config)['scores']['acc']
+        results_dict['train_set_after_training'] = evaluate(
+            model, train_data, eval_config)['scores']['acc']
 
     return results_dict
 
@@ -483,7 +511,8 @@ def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], conf
             example.meta['priming_data'] = priming_data
 
     metrics = config.metrics if config.metrics else ['acc']
-    device = torch.device(config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(
+        config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
 
     model.model.to(device)
     results = model.eval(eval_data, device, per_gpu_eval_batch_size=config.per_gpu_eval_batch_size,
@@ -498,9 +527,37 @@ def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], conf
         elif metric == 'f1':
             scores[metric] = f1_score(results['labels'], predictions)
         elif metric == 'f1-macro':
-            scores[metric] = f1_score(results['labels'], predictions, average='macro')
+            scores[metric] = f1_score(
+                results['labels'], predictions, average='macro')
         elif metric == 'em':
-            scores[metric] = exact_match(predictions, results['labels'], results['question_ids'])
+            scores[metric] = exact_match(
+                predictions, results['labels'], results['question_ids'])
+        elif metric == 'precision':
+            scores[metric] = precision_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == 'recall':
+            scores[metric] = recall_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == "f_beta_2.0":
+            scores[metric] = fbeta_score(
+                y_true=y_true,
+                y_pred=y_pred,
+                average="binary",
+                beta=2.0  # recall weighted higher than precision
+            )
+        elif metric == "f_beta_0.5":
+            scores[metric] = fbeta_score(
+                y_true=y_true,
+                y_pred=y_pred,
+                average="binary",
+                beta=0.5  # recall weighted higher than precision
+            )
         else:
             raise ValueError(f"Metric '{metric}' not implemented")
 
@@ -515,15 +572,19 @@ def _write_results(path: str, results: Dict):
             for pattern_id, values in results[metric].items():
                 mean = statistics.mean(values)
                 stdev = statistics.stdev(values) if len(values) > 1 else 0
-                result_str = "{}-p{}: {} +- {}".format(metric, pattern_id, mean, stdev)
+                result_str = "{}-p{}: {} +- {}".format(
+                    metric, pattern_id, mean, stdev)
                 logger.info(result_str)
                 fh.write(result_str + '\n')
 
         for metric in results.keys():
-            all_results = [result for pattern_results in results[metric].values() for result in pattern_results]
+            all_results = [result for pattern_results in results[metric].values()
+                           for result in pattern_results]
             all_mean = statistics.mean(all_results)
-            all_stdev = statistics.stdev(all_results) if len(all_results) > 1 else 0
-            result_str = "{}-all-p: {} +- {}".format(metric, all_mean, all_stdev)
+            all_stdev = statistics.stdev(
+                all_results) if len(all_results) > 1 else 0
+            result_str = "{}-all-p: {} +- {}".format(
+                metric, all_mean, all_stdev)
             logger.info(result_str)
             fh.write(result_str + '\n')
 
@@ -541,7 +602,8 @@ def merge_logits(logits_dir: str, output_file: str, reduction: str):
            training.
     """
     subdirs = next(os.walk(logits_dir))[1]
-    logger.info("Found the following {} subdirectories: {}".format(len(subdirs), subdirs))
+    logger.info("Found the following {} subdirectories: {}".format(
+        len(subdirs), subdirs))
 
     all_logits_lists = []
 
@@ -551,7 +613,8 @@ def merge_logits(logits_dir: str, output_file: str, reduction: str):
         logits = []
 
         if not os.path.exists(results_file) or not os.path.exists(logits_file):
-            logger.warning(f"Skipping subdir '{subdir}' because 'results.txt' or 'logits.txt' not found")
+            logger.warning(
+                f"Skipping subdir '{subdir}' because 'results.txt' or 'logits.txt' not found")
             continue
 
         if reduction == 'mean':
@@ -596,7 +659,8 @@ def merge_logits_lists(logits_lists: List[LogitsList], reduction: str = 'mean') 
     elif reduction == 'wmean':
         logits = np.average(logits, axis=0, weights=weights).tolist()
     else:
-        raise ValueError("Reduction strategy '{}' not implemented".format(reduction))
+        raise ValueError(
+            "Reduction strategy '{}' not implemented".format(reduction))
 
     return LogitsList(score=-1, logits=logits)
 
@@ -627,17 +691,22 @@ def generate_ipet_train_sets(train_data: List[InputExample], unlabeled_data: Lis
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    logger.info("Found the following {} subdirectories: {}".format(len(subdirs), subdirs))
+    logger.info("Found the following {} subdirectories: {}".format(
+        len(subdirs), subdirs))
 
     if train_data:
-        train_examples_per_label = [sum(1 for ex in train_data if ex.label == label) for label in labels]
+        train_examples_per_label = [
+            sum(1 for ex in train_data if ex.label == label) for label in labels]
         multiplier = num_new_examples / len(train_data)
-        examples_per_label = [int(epl * multiplier) for epl in train_examples_per_label]
-        logger.info(f"Example distribution in the original dataset: {train_examples_per_label}")
+        examples_per_label = [int(epl * multiplier)
+                              for epl in train_examples_per_label]
+        logger.info(
+            f"Example distribution in the original dataset: {train_examples_per_label}")
     else:
         examples_per_label = eq_div(num_new_examples, len(labels))
 
-    logger.info(f"Target distribution for the new dataset: {examples_per_label}")
+    logger.info(
+        f"Target distribution for the new dataset: {examples_per_label}")
 
     for example in unlabeled_data:
         example.label, example.logits = None, None
@@ -653,7 +722,8 @@ def generate_ipet_train_sets(train_data: List[InputExample], unlabeled_data: Lis
         logits = []
 
         if not os.path.exists(results_file) or not os.path.exists(logits_file):
-            logger.warning(f"Skipping subdir '{subdir}' because 'results.txt' or 'logits.txt' not found")
+            logger.warning(
+                f"Skipping subdir '{subdir}' because 'results.txt' or 'logits.txt' not found")
             continue
 
         if reduction == 'mean':
@@ -675,7 +745,8 @@ def generate_ipet_train_sets(train_data: List[InputExample], unlabeled_data: Lis
         logits_lists[subdir] = loglist
 
     for subdir in subdirs:
-        other_logits_lists = [ll for sd, ll in logits_lists.items() if sd != subdir]
+        other_logits_lists = [ll for sd,
+                              ll in logits_lists.items() if sd != subdir]
         subdir_train_set = generate_ipet_train_set(
             other_logits_lists, labels=labels, original_data=unlabeled_data, examples_per_label=examples_per_label,
             logits_percentage=logits_percentage, reduction=reduction, n_most_likely=n_most_likely, rng=rng,
@@ -723,7 +794,8 @@ def generate_ipet_train_set(logits_lists: List[LogitsList], labels: List[str], o
         logits = np.average(logits, axis=0, weights=weights)
         logits = softmax(logits, axis=1).tolist()
     else:
-        raise ValueError("Reduction strategy '{}' not implemented".format(reduction))
+        raise ValueError(
+            "Reduction strategy '{}' not implemented".format(reduction))
 
     assert len(logits) == len(original_data)
 
@@ -737,12 +809,15 @@ def generate_ipet_train_set(logits_lists: List[LogitsList], labels: List[str], o
 
         if n_most_likely <= 0:
             examples = [ex for ex in original_data if ex.label == label]
-            logger.info("There are {} examples for label {}".format(len(examples), label))
+            logger.info("There are {} examples for label {}".format(
+                len(examples), label))
             while len(examples) < examples_per_label[idx]:
                 # upsample examples if there are too few
-                examples.extend(ex for ex in original_data if ex.label == label)
+                examples.extend(
+                    ex for ex in original_data if ex.label == label)
         else:
-            examples = [(ex.logits[idx], ex_idx, ex) for ex_idx, ex in enumerate(original_data)]
+            examples = [(ex.logits[idx], ex_idx, ex)
+                        for ex_idx, ex in enumerate(original_data)]
             examples.sort(reverse=True)
             examples = [ex for score, ex_idx, ex in examples[:n_most_likely]]
             examples = [deepcopy(ex) for ex in examples]
@@ -760,5 +835,6 @@ def generate_ipet_train_set(logits_lists: List[LogitsList], labels: List[str], o
 def _draw_examples_by_label_probability(examples: List[InputExample], num_examples: int, rng) -> List[InputExample]:
     label_probabilities = [max(example.logits) for example in examples]
     sum_label_probabilities = sum(label_probabilities)
-    label_probabilities = [p / sum_label_probabilities for p in label_probabilities]
+    label_probabilities = [
+        p / sum_label_probabilities for p in label_probabilities]
     return rng.choice(examples, size=num_examples, replace=False, p=label_probabilities).tolist()
