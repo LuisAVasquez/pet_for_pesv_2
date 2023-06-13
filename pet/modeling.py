@@ -546,15 +546,15 @@ def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], conf
             )
         elif metric == "f_beta_2.0":
             scores[metric] = fbeta_score(
-                y_true=y_true,
-                y_pred=y_pred,
+                y_true=results['labels'],
+                y_pred=predictions,
                 average="binary",
                 beta=2.0  # recall weighted higher than precision
             )
         elif metric == "f_beta_0.5":
             scores[metric] = fbeta_score(
-                y_true=y_true,
-                y_pred=y_pred,
+                y_true=results['labels'],
+                y_pred=predictions,
                 average="binary",
                 beta=0.5  # recall weighted higher than precision
             )
