@@ -49,7 +49,7 @@ class PetConfig(ABC):
     def save(self, path: str):
         """Save this config to a file."""
         with open(path, 'w', encoding='utf8') as fh:
-            json.dump(self.__dict__, fh)
+            json.dump(self.__dict__, fh, indent=2)
 
     @classmethod
     def load(cls, path: str):
@@ -414,7 +414,7 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
 
                 results_dict['test_set_after_training'] = scores
                 with open(os.path.join(pattern_iter_output_dir, 'results.json'), 'w') as fh:
-                    json.dump(results_dict, fh)
+                    json.dump(results_dict, fh, indent=2)
 
                 for metric, value in scores.items():
                     results[metric][pattern_id].append(value)
