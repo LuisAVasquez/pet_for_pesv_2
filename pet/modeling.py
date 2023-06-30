@@ -332,11 +332,14 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
     :param seed: the random seed to use
     """
 
+    print("started train_pet_ensemble")
     results = defaultdict(lambda: defaultdict(list))
     set_seed(seed)
 
     for pattern_id in pattern_ids:
+        print(f"now in pattern {pattern_id} of {pattern_ids}")
         for iteration in range(repetitions):
+            print(f"now in iteration {iteration} of {repetitions}")
 
             model_config.pattern_id = pattern_id
             results_dict = {}
@@ -368,7 +371,9 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
                 results_dict.update(train_single_model(wrapper, train_data, train_config, eval_config,
                                                        ipet_train_data=ipet_train_data,
                                                        unlabeled_data=unlabeled_data))
-
+                print("results dict:")
+                print(results_dict)
+                print()
                 with open(os.path.join(pattern_iter_output_dir, 'results.txt'), 'w') as fh:
                     fh.write(str(results_dict))
 
@@ -489,7 +494,7 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
 
     if train_data and return_train_set_results:
         results_dict['train_set_after_training'] = evaluate(
-            model, train_data, eval_config)['scores']['acc']
+            model, train_data, eval_config)['scores']  # ['acc']
 
     return results_dict
 
@@ -562,7 +567,7 @@ def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], conf
             raise ValueError(f"Metric '{metric}' not implemented")
 
     results['scores'] = scores
-    results['predictions'] = predictions
+    results['predictions'] = predictions.tolist()
     return results
 
 
