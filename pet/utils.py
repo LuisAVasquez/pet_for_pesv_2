@@ -24,6 +24,18 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizer, GPT2Tokenizer
 
+from sklearn.metrics import f1_score
+from sklearn.metrics import (
+    accuracy_score,
+    precision_recall_fscore_support,
+    fbeta_score,
+    roc_auc_score,
+    roc_curve,
+    precision_score,
+    recall_score,
+)
+from transformers.data.metrics import simple_accuracy
+
 
 class LogitsList:
     """A list of logits obtained from a finetuned PET model"""
@@ -46,7 +58,8 @@ class LogitsList:
         with open(path, 'w') as fh:
             fh.write(str(self.score) + '\n')
             for example_logits in self.logits:
-                fh.write(' '.join(str(logit) for logit in example_logits) + '\n')
+                fh.write(' '.join(str(logit)
+                         for logit in example_logits) + '\n')
 
     @staticmethod
     def load(path: str, with_score: bool = True) -> 'LogitsList':
@@ -168,8 +181,8 @@ class PLMInputFeatures(InputFeatures):
 
     def pretty_print(self, tokenizer):
         return super().pretty_print(tokenizer) + '\n' + \
-               f'perm_mask         = {self.perm_mask}\n' + \
-               f'target_mapping    = {self.target_mapping}'
+            f'perm_mask         = {self.perm_mask}\n' + \
+            f'target_mapping    = {self.target_mapping}'
 
 
 class DictDataset(Dataset):
@@ -178,7 +191,8 @@ class DictDataset(Dataset):
     def __init__(self, **tensors):
         tensors.values()
 
-        assert all(next(iter(tensors.values())).size(0) == tensor.size(0) for tensor in tensors.values())
+        assert all(next(iter(tensors.values())).size(0) == tensor.size(0)
+                   for tensor in tensors.values())
         self.tensors = tensors
 
     def __getitem__(self, index):
@@ -233,7 +247,8 @@ def save_predictions(path: str, wrapper, results: Dict):
     if wrapper.task_helper and wrapper.task_helper.output:
         predictions_with_idx = wrapper.task_helper.output
     else:
-        inv_label_map = {idx: label for label, idx in wrapper.preprocessor.label_map.items()}
+        inv_label_map = {idx: label for label,
+                         idx in wrapper.preprocessor.label_map.items()}
         for idx, prediction_idx in zip(results['indices'], results['predictions']):
             prediction = inv_label_map[prediction_idx]
             idx = idx.tolist() if isinstance(idx, np.ndarray) else int(idx)
@@ -274,7 +289,8 @@ def get_verbalization_ids(word: str, tokenizer: PreTrainedTokenizer, force_singl
            corresponds to multiple tokens.
     :return: either the list of token ids or the single token id corresponding to this word
     """
-    kwargs = {'add_prefix_space': True} if isinstance(tokenizer, GPT2Tokenizer) else {}
+    kwargs = {'add_prefix_space': True} if isinstance(
+        tokenizer, GPT2Tokenizer) else {}
     ids = tokenizer.encode(word, add_special_tokens=False, **kwargs)
     if not force_single_token:
         return ids
@@ -340,3 +356,85 @@ def distillation_loss(predictions, targets, temperature):
     p = F.log_softmax(predictions / temperature, dim=1)
     q = F.softmax(targets / temperature, dim=1)
     return F.kl_div(p, q, reduction='sum') * (temperature ** 2) / predictions.shape[0]
+
+
+def evaluate(
+        model,
+        eval_data,
+        config,
+        priming_data=None,
+        # model: TransformerModelWrapper,
+        # eval_data: List[InputExample],
+        # config: EvalConfig,
+        # priming_data: List[InputExample] = None
+) -> Dict:
+    """
+    Evaluate a model.
+
+    :param model: the model to evaluate
+    :param eval_data: the examples for evaluation
+    :param config: the evaluation config
+    :param priming_data: an optional list of priming data to use
+    :return: a dictionary containing the model's logits, predictions and (if any metrics are given) scores
+    """
+
+    if config.priming:
+        for example in eval_data:
+            example.meta['priming_data'] = priming_data
+
+    metrics = config.metrics if config.metrics else ['acc']
+    device = torch.device(
+        config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
+
+    model.model.to(device)
+    results = model.eval(eval_data, device, per_gpu_eval_batch_size=config.per_gpu_eval_batch_size,
+                         n_gpu=config.n_gpu, decoding_strategy=config.decoding_strategy, priming=config.priming)
+
+    predictions = np.argmax(results['logits'], axis=1)
+    scores = {}
+
+    for metric in metrics:
+        if metric == 'acc':
+            scores[metric] = simple_accuracy(predictions, results['labels'])
+        elif metric == 'accuracy':
+            scores[metric] = simple_accuracy(predictions, results['labels'])
+        elif metric == 'f1':
+            scores[metric] = f1_score(results['labels'], predictions)
+        elif metric == 'f1-macro':
+            scores[metric] = f1_score(
+                results['labels'], predictions, average='macro')
+        elif metric == 'em':
+            scores[metric] = exact_match(
+                predictions, results['labels'], results['question_ids'])
+        elif metric == 'precision':
+            scores[metric] = precision_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == 'recall':
+            scores[metric] = recall_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == "f_beta_2.0":
+            scores[metric] = fbeta_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+                beta=2.0  # recall weighted higher than precision
+            )
+        elif metric == "f_beta_0.5":
+            scores[metric] = fbeta_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+                beta=0.5  # recall weighted higher than precision
+            )
+        else:
+            raise ValueError(f"Metric '{metric}' not implemented")
+
+    results['scores'] = scores
+    results['predictions'] = predictions.tolist()
+    return results

@@ -816,7 +816,7 @@ TASK_HELPERS = {
 METRICS = {
     "cb": ["acc", "f1-macro"],
     "multirc": ["acc", "f1", "em"],
-    "pesv": ["acc", "f1", "precision", "recall", "f_beta_2.0", "f_beta_0.5"]
+    "pesv": ["acc", "accuracy", "f1", "precision", "recall", "f_beta_2.0", "f_beta_0.5"]
 }
 
 DEFAULT_METRICS = ["acc"]

@@ -35,6 +35,7 @@ from sklearn.metrics import (
 
 import log
 from pet.utils import InputExample, exact_match, save_logits, save_predictions, softmax, LogitsList, set_seed, eq_div
+from pet.utils import evaluate
 from pet.wrapper import TransformerModelWrapper, SEQUENCE_CLASSIFIER_WRAPPER, WrapperConfig
 
 logger = log.get_logger('root')
@@ -368,9 +369,14 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
                 else:
                     ipet_train_data = None
 
-                results_dict.update(train_single_model(wrapper, train_data, train_config, eval_config,
-                                                       ipet_train_data=ipet_train_data,
-                                                       unlabeled_data=unlabeled_data))
+                results_dict.update(
+                    train_single_model(
+                        wrapper, train_data, train_config, eval_config,
+                        ipet_train_data=ipet_train_data,
+                        unlabeled_data=unlabeled_data,
+                        task_eval_data=eval_data,
+                    )
+                )
                 print("results dict:")
                 print(results_dict)
                 print()
@@ -435,9 +441,12 @@ def train_pet_ensemble(model_config: WrapperConfig, train_config: TrainConfig, e
         logger.info("=== ENSEMBLE TRAINING COMPLETE ===")
 
 
-def train_single_model(model: TransformerModelWrapper, train_data: List[InputExample], config: TrainConfig,
-                       eval_config: EvalConfig = None, ipet_train_data: List[InputExample] = None,
-                       unlabeled_data: List[InputExample] = None, return_train_set_results: bool = True):
+def train_single_model(
+        model: TransformerModelWrapper, train_data: List[InputExample], config: TrainConfig,
+        eval_config: EvalConfig = None, ipet_train_data: List[InputExample] = None,
+        unlabeled_data: List[InputExample] = None, return_train_set_results: bool = True,
+        task_eval_data: List[InputExample] = None,
+):
     """
     Train a single model.
 
@@ -470,7 +479,7 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
     if not all_train_data and not config.use_logits:
         logger.warning('Training method was called without training examples')
     else:
-        global_step, tr_loss = model.train(
+        global_step, tr_loss, log_history = model.train(
             all_train_data, device,
             per_gpu_train_batch_size=config.per_gpu_train_batch_size,
             per_gpu_unlabeled_batch_size=config.per_gpu_unlabeled_batch_size,
@@ -487,88 +496,20 @@ def train_single_model(model: TransformerModelWrapper, train_data: List[InputExa
             lm_training=config.lm_training,
             use_logits=config.use_logits,
             alpha=config.alpha,
-            temperature=config.temperature
+            temperature=config.temperature,
+            # for evalutation during training
+            task_eval_data=task_eval_data,
+            eval_config=eval_config,
         )
         results_dict['global_step'] = global_step
         results_dict['average_loss'] = tr_loss
+        results_dict['log_history'] = log_history
 
     if train_data and return_train_set_results:
         results_dict['train_set_after_training'] = evaluate(
             model, train_data, eval_config)['scores']  # ['acc']
 
     return results_dict
-
-
-def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], config: EvalConfig,
-             priming_data: List[InputExample] = None) -> Dict:
-    """
-    Evaluate a model.
-
-    :param model: the model to evaluate
-    :param eval_data: the examples for evaluation
-    :param config: the evaluation config
-    :param priming_data: an optional list of priming data to use
-    :return: a dictionary containing the model's logits, predictions and (if any metrics are given) scores
-    """
-
-    if config.priming:
-        for example in eval_data:
-            example.meta['priming_data'] = priming_data
-
-    metrics = config.metrics if config.metrics else ['acc']
-    device = torch.device(
-        config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
-
-    model.model.to(device)
-    results = model.eval(eval_data, device, per_gpu_eval_batch_size=config.per_gpu_eval_batch_size,
-                         n_gpu=config.n_gpu, decoding_strategy=config.decoding_strategy, priming=config.priming)
-
-    predictions = np.argmax(results['logits'], axis=1)
-    scores = {}
-
-    for metric in metrics:
-        if metric == 'acc':
-            scores[metric] = simple_accuracy(predictions, results['labels'])
-        elif metric == 'f1':
-            scores[metric] = f1_score(results['labels'], predictions)
-        elif metric == 'f1-macro':
-            scores[metric] = f1_score(
-                results['labels'], predictions, average='macro')
-        elif metric == 'em':
-            scores[metric] = exact_match(
-                predictions, results['labels'], results['question_ids'])
-        elif metric == 'precision':
-            scores[metric] = precision_score(
-                y_true=results['labels'],
-                y_pred=predictions,
-                average="binary",
-            )
-        elif metric == 'recall':
-            scores[metric] = recall_score(
-                y_true=results['labels'],
-                y_pred=predictions,
-                average="binary",
-            )
-        elif metric == "f_beta_2.0":
-            scores[metric] = fbeta_score(
-                y_true=results['labels'],
-                y_pred=predictions,
-                average="binary",
-                beta=2.0  # recall weighted higher than precision
-            )
-        elif metric == "f_beta_0.5":
-            scores[metric] = fbeta_score(
-                y_true=results['labels'],
-                y_pred=predictions,
-                average="binary",
-                beta=0.5  # recall weighted higher than precision
-            )
-        else:
-            raise ValueError(f"Metric '{metric}' not implemented")
-
-    results['scores'] = scores
-    results['predictions'] = predictions.tolist()
-    return results
 
 
 def _write_results(path: str, results: Dict):
@@ -843,3 +784,80 @@ def _draw_examples_by_label_probability(examples: List[InputExample], num_exampl
     label_probabilities = [
         p / sum_label_probabilities for p in label_probabilities]
     return rng.choice(examples, size=num_examples, replace=False, p=label_probabilities).tolist()
+
+# moving evaluate to utils.py to avoid circular imports
+
+
+'''def evaluate(model: TransformerModelWrapper, eval_data: List[InputExample], config: EvalConfig,
+             priming_data: List[InputExample] = None) -> Dict:
+    """
+    Evaluate a model.
+
+    :param model: the model to evaluate
+    :param eval_data: the examples for evaluation
+    :param config: the evaluation config
+    :param priming_data: an optional list of priming data to use
+    :return: a dictionary containing the model's logits, predictions and (if any metrics are given) scores
+    """
+
+    if config.priming:
+        for example in eval_data:
+            example.meta['priming_data'] = priming_data
+
+    metrics = config.metrics if config.metrics else ['acc']
+    device = torch.device(
+        config.device if config.device else "cuda" if torch.cuda.is_available() else "cpu")
+
+    model.model.to(device)
+    results = model.eval(eval_data, device, per_gpu_eval_batch_size=config.per_gpu_eval_batch_size,
+                         n_gpu=config.n_gpu, decoding_strategy=config.decoding_strategy, priming=config.priming)
+
+    predictions = np.argmax(results['logits'], axis=1)
+    scores = {}
+
+    for metric in metrics:
+        if metric == 'acc':
+            scores[metric] = simple_accuracy(predictions, results['labels'])
+        elif metric == 'accuracy':
+            scores[metric] = simple_accuracy(predictions, results['labels'])
+        elif metric == 'f1':
+            scores[metric] = f1_score(results['labels'], predictions)
+        elif metric == 'f1-macro':
+            scores[metric] = f1_score(
+                results['labels'], predictions, average='macro')
+        elif metric == 'em':
+            scores[metric] = exact_match(
+                predictions, results['labels'], results['question_ids'])
+        elif metric == 'precision':
+            scores[metric] = precision_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == 'recall':
+            scores[metric] = recall_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+            )
+        elif metric == "f_beta_2.0":
+            scores[metric] = fbeta_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+                beta=2.0  # recall weighted higher than precision
+            )
+        elif metric == "f_beta_0.5":
+            scores[metric] = fbeta_score(
+                y_true=results['labels'],
+                y_pred=predictions,
+                average="binary",
+                beta=0.5  # recall weighted higher than precision
+            )
+        else:
+            raise ValueError(f"Metric '{metric}' not implemented")
+
+    results['scores'] = scores
+    results['predictions'] = predictions.tolist()
+    return results
+'''

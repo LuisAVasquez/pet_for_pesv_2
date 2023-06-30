@@ -36,6 +36,7 @@ import log
 from pet import preprocessor
 from pet.tasks import TASK_HELPERS
 from pet.utils import InputFeatures, DictDataset, distillation_loss
+from .modeling import evaluate
 
 logger = log.get_logger('root')
 
@@ -202,7 +203,10 @@ class TransformerModelWrapper:
               learning_rate: float = 5e-5, adam_epsilon: float = 1e-8, warmup_steps=0, max_grad_norm: float = 1,
               logging_steps: int = 50, per_gpu_unlabeled_batch_size: int = 8, unlabeled_data: List[InputExample] = None,
               lm_training: bool = False, use_logits: bool = False, alpha: float = 0.8, temperature: float = 1,
-              max_steps=-1, **_):
+              max_steps=-1,
+              task_eval_data: List[InputExample] = None,
+              eval_config=None,
+              **_):
         """
         Train the underlying language model.
 
@@ -276,10 +280,15 @@ class TransformerModelWrapper:
         global_step = 0
         tr_loss, logging_loss = 0.0, 0.0
         self.model.zero_grad()
+        # log history contains the evolution of the metrics. Inspired from HuggingFace's "trainer state"
+        log_history = []
 
         train_iterator = trange(int(num_train_epochs), desc="Epoch")
 
-        for _ in train_iterator:
+        for epoch in train_iterator:
+            epoch_loss = 0.0
+            n_batches = len(train_dataloader)
+            print(f"There are {n_batches} batches for this training instance")
             epoch_iterator = tqdm(train_dataloader, desc="Iteration")
             for _, batch in enumerate(epoch_iterator):
                 self.model.train()
@@ -302,8 +311,11 @@ class TransformerModelWrapper:
                                        for k, t in unlabeled_batch.items()}
 
                 train_step_inputs = {
-                    'unlabeled_batch': unlabeled_batch, 'lm_training': lm_training, 'alpha': alpha,
-                    'use_logits': use_logits, 'temperature': temperature
+                    'unlabeled_batch': unlabeled_batch,
+                    'lm_training': lm_training,
+                    'alpha': alpha,
+                    'use_logits': use_logits,
+                    'temperature': temperature,
                 }
                 loss = self.task_helper.train_step(
                     batch, **train_step_inputs) if self.task_helper else None
@@ -320,6 +332,8 @@ class TransformerModelWrapper:
                 loss.backward()
 
                 tr_loss += loss.item()
+                epoch_loss += loss.item()
+
                 if (step + 1) % gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(
                         self.model.parameters(), max_grad_norm)
@@ -328,12 +342,33 @@ class TransformerModelWrapper:
                     self.model.zero_grad()
                     global_step += 1
 
+                    # logging
                     if logging_steps > 0 and global_step % logging_steps == 0:
                         logs = {}
                         loss_scalar = (tr_loss - logging_loss) / logging_steps
                         learning_rate_scalar = scheduler.get_lr()[0]
+
                         logs['learning_rate'] = learning_rate_scalar
-                        logs['loss'] = loss_scalar
+                        logs['loss_steps'] = loss_scalar
+                        logs['epoch'] = epoch + 1
+                        logs['step'] = global_step
+
+                        # evaluation logs
+                        if False:
+                            eval_result = evaluate(
+                                model=self,  # a wrapper!
+                                eval_data=task_eval_data,
+                                config=eval_config,
+                                priming_data=task_train_data,
+                            )
+                            eval_scores = eval_result['scores']
+                            # adding prefix
+                            eval_scores = dict(
+                                (f"eval_{k}", v) for k, v in eval_scores.items()
+                            )
+                            logs.update(eval_scores)
+
+                        log_history.append(logs)
                         logging_loss = tr_loss
 
                         print(json.dumps(
@@ -343,11 +378,98 @@ class TransformerModelWrapper:
                     epoch_iterator.close()
                     break
                 step += 1
+
+            # logging at end of each epoch
+            if True:
+                logs = {}
+
+                epoch_loss = epoch_loss/n_batches
+
+                learning_rate_scalar = scheduler.get_lr()[0]
+
+                logs['learning_rate'] = learning_rate_scalar
+                logs['loss'] = epoch_loss
+                logs['epoch'] = epoch + 1
+                logs['step'] = global_step
+
+                # evaluation logs
+                if task_eval_data:
+                    eval_result = evaluate(
+                        model=self,  # a wrapper!
+                        eval_data=task_eval_data,
+                        config=eval_config,
+                        priming_data=task_train_data,
+                    )
+                    eval_scores = eval_result['scores']
+                    # adding prefix
+                    eval_scores = dict(
+                        (f"eval_{k}", v) for k, v in eval_scores.items()
+                    )
+                    # calculate loss on evaluation dataset:
+                    eval_dataset = self._generate_dataset(task_eval_data)
+                    eval_sampler = RandomSampler(eval_dataset)
+                    eval_dataloader = DataLoader(
+                        eval_dataset, sampler=eval_sampler, batch_size=train_batch_size
+                    )
+                    eval_iterator = tqdm(
+                        eval_dataloader, desc="Calculating loss on evaluation")
+                    eval_loss = 0.0
+                    for _, batch in enumerate(eval_iterator):
+                        self.model.eval()
+                        unlabeled_batch = None
+
+                        batch = {k: t.to(device) for k, t in batch.items()}
+
+                        if lm_training:
+                            while unlabeled_batch is None:
+                                try:
+                                    unlabeled_batch = unlabeled_iter.__next__()
+                                except StopIteration:
+                                    logger.info("Resetting unlabeled dataset")
+                                    unlabeled_iter = unlabeled_dataloader.__iter__()
+
+                            lm_input_ids = unlabeled_batch['input_ids']
+                            unlabeled_batch['input_ids'], unlabeled_batch['mlm_labels'] = self._mask_tokens(
+                                lm_input_ids)
+                            unlabeled_batch = {k: t.to(device)
+                                               for k, t in unlabeled_batch.items()}
+
+                        train_step_inputs = {
+                            'unlabeled_batch': unlabeled_batch,
+                            'lm_training': lm_training,
+                            'alpha': alpha,
+                            'use_logits': use_logits,
+                            'temperature': temperature,
+                        }
+                        loss = self.task_helper.train_step(
+                            batch, **train_step_inputs) if self.task_helper else None
+
+                        if loss is None:
+                            loss = TRAIN_STEP_FUNCTIONS[self.config.wrapper_type](
+                                self)(batch, **train_step_inputs)
+
+                        if n_gpu > 1:
+                            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+                        if gradient_accumulation_steps > 1:
+                            loss = loss / gradient_accumulation_steps
+
+                        eval_loss += loss.item()
+
+                    eval_scores['eval_loss'] = eval_loss
+
+                    logs.update(eval_scores)
+
+                log_history.append(logs)
+                logging_loss = tr_loss
+
+                print(json.dumps(
+                    {**logs, **{'step': global_step}}, indent=2))
+
             if 0 < max_steps < global_step:
                 train_iterator.close()
                 break
 
-        return global_step, (tr_loss / global_step if global_step > 0 else -1)
+        return global_step, (tr_loss / global_step if global_step > 0 else -1), log_history
 
     def eval(self, eval_data: List[InputExample], device, per_gpu_eval_batch_size: int = 8, n_gpu: int = 1,
              priming: bool = False, decoding_strategy: str = 'default') -> Dict:
