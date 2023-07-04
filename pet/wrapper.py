@@ -414,6 +414,7 @@ class TransformerModelWrapper:
                     eval_iterator = tqdm(
                         eval_dataloader, desc="Calculating loss on evaluation")
                     eval_loss = 0.0
+                    n_eval_batches = len(eval_iterator)
                     for _, batch in enumerate(eval_iterator):
                         self.model.eval()
                         unlabeled_batch = None
@@ -455,6 +456,8 @@ class TransformerModelWrapper:
 
                         eval_loss += loss.item()
 
+                    # average loss over all batches
+                    eval_loss = eval_loss/n_batches
                     eval_scores['eval_loss'] = eval_loss
 
                     logs.update(eval_scores)
