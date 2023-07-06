@@ -833,7 +833,7 @@ class Sanba_PVP(PVP):
         elif self.pattern_id == 5:
             # pattern
             # "Does this deal with domesticated species? [MASK] a"
-            return ["Does this deal with domesticated species?", self.mask, text_a]. []
+            return ["Does this deal with domesticated species?", self.mask, text_a], []
         else:
             raise ValueError(
                 "No pattern implemented for id {}".format(self.pattern_id))
