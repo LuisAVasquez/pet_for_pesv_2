@@ -26,6 +26,8 @@ import log
 from pet import task_helpers
 from pet.utils import InputExample
 
+import pandas as pd
+
 logger = log.get_logger('root')
 
 
@@ -902,7 +904,7 @@ class PESVDataProcessor(DataProcessor):
 
     # Set this to a list of all labels in the train + test data
     # LABELS = ["1", "2", "3", "4"]
-    LABELS = ["1", "0"]
+    LABELS = ["0", "1"]
 
     # Set this to the column of the train/test csv files containing the input's text a
     TEXT_A_COLUMN = 1
@@ -955,7 +957,7 @@ class PESVDataProcessor(DataProcessor):
     def _create_examples(self, path, set_type, max_examples=-1, skip_first=0):
         """Creates examples for the training and dev sets."""
         examples = []
-
+        """
         with open(path) as f:
             reader = csv.reader(f, delimiter=',')
             for idx, row in enumerate(reader):
@@ -970,7 +972,21 @@ class PESVDataProcessor(DataProcessor):
                 example = InputExample(
                     guid=guid, text_a=text_a, text_b=text_b, label=label)
                 examples.append(example)
+        """
+        df = pd.read_csv(
+            path,
+            encoding="utf-8",
+            lineterminator="\n",
+        )
+        for idx, row in df.iterrows():
 
+            guid = "%s-%s" % (set_type, idx)
+            label = str(row[PESVDataProcessor.LABEL_COLUMN])
+            text_a = row[PESVDataProcessor.TEXT_A_COLUMN]
+            text_b = row[PESVDataProcessor.TEXT_B_COLUMN] if PESVDataProcessor.TEXT_B_COLUMN >= 0 else None
+            example = InputExample(
+                guid=guid, text_a=text_a, text_b=text_b, label=label)
+            examples.append(example)
         return examples
 
 
