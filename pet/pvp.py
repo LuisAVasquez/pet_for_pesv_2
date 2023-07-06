@@ -751,3 +751,96 @@ class PESV_PVP(PVP):
 
 # register the PVP for this task with its name
 PVPS[PESV_PVP.TASK_NAME] = PESV_PVP
+
+
+##########################
+# Sanba PVP
+##########################
+
+
+class Sanba_PVP(PVP):
+    """
+    Example for a pattern-verbalizer pair (PVP).
+    """
+
+    # Set this to the name of the task
+    TASK_NAME = "sanba"
+
+    # Set this to the verbalizer for the given task: a mapping from the task's labels (which can be obtained using
+    # the corresponding DataProcessor's get_labels method) to tokens from the language model's vocabulary
+    # VERBALIZER = {
+    #     "1": ["World"],
+    #     "2": ["Sports"],
+    #     "3": ["Business"],
+    #     "4": ["Tech"]
+    # }
+    # VERBALIZER = {
+    #    "0" : ["irrelevant", "impertinent", "unrelated","inconsequential", "insignificant", "pointless", "unimportant", "unnecessary"],
+    #    "1" : ["relevant", "pertitent", "related","admisible", "applicable", "compatible", "important"],
+    # }
+    VERBALIZER = {
+        "0": ["No", "no"],
+        "1": [
+            "Yes",
+            # "yes",
+        ],
+    }
+
+    def get_parts(self, example: InputExample):
+        """
+        This function defines the actual patterns: It takes as input an example and outputs the result of applying a
+        pattern to it. To allow for multiple patterns, a pattern_id can be passed to the PVP's constructor. This
+        method must implement the application of all patterns.
+        """
+
+        # We tell the tokenizer that both text_a and text_b can be truncated if the resulting sequence is longer than
+        # our language model's max sequence length.
+        text_a = self.shortenable(example.text_a)
+        text_b = self.shortenable(example.text_b)
+
+        # For each pattern_id, we define the corresponding pattern and return a pair of text a and text b (where text b
+        # can also be empty).
+        """
+        if self.pattern_id == 0:
+            # this corresponds to the pattern [MASK]: a b
+            return [self.mask, ':', text_a, text_b], []
+        elif self.pattern_id == 1:
+            # this corresponds to the pattern [MASK] News: a || (b)
+            return [self.mask, 'News:', text_a], ['(', text_b, ')']
+        else:
+            raise ValueError("No pattern implemented for id {}".format(self.pattern_id))
+        """
+        if self.pattern_id == 0:
+            # pattern:
+            # Is this relevant? [MASK] || a
+            return ["Is this relevant?", self.mask], [text_a]
+        elif self.pattern_id == 1:
+            # pattern
+            # "Is this about plant health? [MASK] a"
+            return ["Is this about animal health?", self.mask, text_a], []
+        elif self.pattern_id == 2:
+            # pattern
+            # "Is this about epidemic surveillance? [MASK] || a"
+            return ["Is this about livestock welfare?", self.mask], [text_a]
+        elif self.pattern_id == 3:
+            # pattern
+            # "This talks about animal well-being? [MASK] a"
+            return ["This talks about animal well-being?", self.mask, text_a], []
+        elif self.pattern_id == 4:
+            # pattern
+            # "This concerns farm animals? [MASK] || a"
+            return ["This concerns farm animals?", self.mask], [text_a]
+        elif self.pattern_id == 5:
+            # pattern
+            # "Does this deal with domesticated species? [MASK] a"
+            return ["Does this deal with domesticated species?", self.mask, text_a]. []
+        else:
+            raise ValueError(
+                "No pattern implemented for id {}".format(self.pattern_id))
+
+    def verbalize(self, label) -> List[str]:
+        return Sanba_PVP.VERBALIZER[label]
+
+
+# register the PVP for this task with its name
+PVPS[Sanba_PVP.TASK_NAME] = Sanba_PVP

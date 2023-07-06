@@ -818,7 +818,8 @@ TASK_HELPERS = {
 METRICS = {
     "cb": ["acc", "f1-macro"],
     "multirc": ["acc", "f1", "em"],
-    "pesv": ["acc", "accuracy", "f1", "precision", "recall", "f_beta_2.0", "f_beta_0.5"]
+    "pesv": ["acc", "accuracy", "f1", "precision", "recall", "f_beta_2.0", "f_beta_0.5"],
+    "sanba": ["acc", "accuracy", "f1", "precision", "recall", "f_beta_2.0", "f_beta_0.5"]
 }
 
 DEFAULT_METRICS = ["acc"]
@@ -992,3 +993,120 @@ class PESVDataProcessor(DataProcessor):
 
 # register the processor for this task with its name
 PROCESSORS[PESVDataProcessor.TASK_NAME] = PESVDataProcessor
+
+
+##########################
+# Sanba Data Processor
+##########################
+
+
+class SanbaDataProcessor(DataProcessor):
+    """
+    Example for a data processor.
+    """
+
+    # Set this to the name of the task
+    TASK_NAME = "sanba"
+
+    # Set this to the name of the file containing the train examples
+    TRAIN_FILE_NAME = "train.csv"
+
+    # Set this to the name of the file containing the dev examples
+    DEV_FILE_NAME = "dev.csv"
+
+    # Set this to the name of the file containing the test examples
+    TEST_FILE_NAME = "test.csv"
+
+    # Set this to the name of the file containing the unlabeled examples
+    UNLABELED_FILE_NAME = "unlabeled.csv"
+
+    # Set this to a list of all labels in the train + test data
+    # LABELS = ["1", "2", "3", "4"]
+    LABELS = ["0", "1"]
+
+    # Set this to the column of the train/test csv files containing the input's text a
+    TEXT_A_COLUMN = 1
+
+    # Set this to the column of the train/test csv files containing the input's text b or to -1 if there is no text b
+    # TEXT_B_COLUMN = 2
+    TEXT_B_COLUMN = -1
+
+    # Set this to the column of the train/test csv files containing the input's gold label
+    # LABEL_COLUMN = 0
+    LABEL_COLUMN = 2
+
+    def get_train_examples(self, data_dir: str) -> List[InputExample]:
+        """
+        This method loads train examples from a file with name `TRAIN_FILE_NAME` in the given directory.
+        :param data_dir: the directory in which the training data can be found
+        :return: a list of train examples
+        """
+        return self._create_examples(os.path.join(data_dir, SanbaDataProcessor.TRAIN_FILE_NAME), "train")
+
+    def get_dev_examples(self, data_dir: str) -> List[InputExample]:
+        """
+        This method loads dev examples from a file with name `DEV_FILE_NAME` in the given directory.
+        :param data_dir: the directory in which the dev data can be found
+        :return: a list of dev examples
+        """
+        return self._create_examples(os.path.join(data_dir, SanbaDataProcessor.DEV_FILE_NAME), "dev")
+
+    def get_test_examples(self, data_dir) -> List[InputExample]:
+        """
+        This method loads test examples from a file with name `TEST_FILE_NAME` in the given directory.
+        :param data_dir: the directory in which the test data can be found
+        :return: a list of test examples
+        """
+        return self._create_examples(os.path.join(data_dir, SanbaDataProcessor.TEST_FILE_NAME), "test")
+
+    def get_unlabeled_examples(self, data_dir) -> List[InputExample]:
+        """
+        This method loads unlabeled examples from a file with name `UNLABELED_FILE_NAME` in the given directory.
+        :param data_dir: the directory in which the unlabeled data can be found
+        :return: a list of unlabeled examples
+        """
+        return self._create_examples(os.path.join(data_dir, SanbaDataProcessor.UNLABELED_FILE_NAME), "unlabeled")
+        # return self.get_train_examples(data_dir)
+
+    def get_labels(self) -> List[str]:
+        """This method returns all possible labels for the task."""
+        return SanbaDataProcessor.LABELS
+
+    def _create_examples(self, path, set_type, max_examples=-1, skip_first=0):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        """
+        with open(path) as f:
+            reader = csv.reader(f, delimiter=',')
+            for idx, row in enumerate(reader):
+                # ignore headers
+                if idx == 0:
+                    continue
+
+                guid = "%s-%s" % (set_type, idx)
+                label = row[SanbaDataProcessor.LABEL_COLUMN]
+                text_a = row[SanbaDataProcessor.TEXT_A_COLUMN]
+                text_b = row[SanbaDataProcessor.TEXT_B_COLUMN] if SanbaDataProcessor.TEXT_B_COLUMN >= 0 else None
+                example = InputExample(
+                    guid=guid, text_a=text_a, text_b=text_b, label=label)
+                examples.append(example)
+        """
+        df = pd.read_csv(
+            path,
+            encoding="utf-8",
+            lineterminator="\n",
+        )
+        for idx, row in df.iterrows():
+
+            guid = "%s-%s" % (set_type, idx)
+            label = str(row[SanbaDataProcessor.LABEL_COLUMN])
+            text_a = row[SanbaDataProcessor.TEXT_A_COLUMN]
+            text_b = row[SanbaDataProcessor.TEXT_B_COLUMN] if SanbaDataProcessor.TEXT_B_COLUMN >= 0 else None
+            example = InputExample(
+                guid=guid, text_a=text_a, text_b=text_b, label=label)
+            examples.append(example)
+        return examples
+
+
+# register the processor for this task with its name
+PROCESSORS[SanbaDataProcessor.TASK_NAME] = SanbaDataProcessor
