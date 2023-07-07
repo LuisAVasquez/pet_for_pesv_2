@@ -258,7 +258,6 @@ class PVP(ABC):
     @staticmethod
     def _load_verbalizer_from_file(path: str, pattern_id: int):
 
-        # type: Dict[int, Dict[str, List[str]]]
         verbalizers = defaultdict(dict)
         current_pattern_id = None
 
@@ -812,28 +811,32 @@ class Sanba_PVP(PVP):
         """
         if self.pattern_id == 0:
             # pattern:
-            # Is this relevant? [MASK] || a
-            return ["Is this relevant?", self.mask], [text_a]
+            # Is this relevant? [MASK]. || a
+            return ["Is this relevant?", self.mask, "."], [text_a]
         elif self.pattern_id == 1:
             # pattern
-            # "Is this about plant health? [MASK] a"
-            return ["Is this about animal health?", self.mask, text_a], []
+            # "Is this about plant health? [MASK]. a"
+            return ["Is this about animal health?", self.mask, ".", text_a], []
         elif self.pattern_id == 2:
             # pattern
             # "Is this about epidemic surveillance? [MASK] || a"
             return ["Is this about livestock welfare?", self.mask], [text_a]
         elif self.pattern_id == 3:
             # pattern
-            # "This talks about animal well-being? [MASK] a"
-            return ["This talks about animal well-being?", self.mask, text_a], []
+            # "This talks about animal well-being? [MASK]. a"
+            return ["This talks about animal well-being?", self.mask, ".", text_a], []
         elif self.pattern_id == 4:
             # pattern
             # "This concerns farm animals? [MASK] || a"
             return ["This concerns farm animals?", self.mask], [text_a]
         elif self.pattern_id == 5:
             # pattern
-            # "Does this deal with domesticated species? [MASK] a"
-            return ["Does this deal with domesticated species?", self.mask, text_a], []
+            # "Does this deal with domesticated species? [MASK]. a"
+            return ["Does this deal with domesticated species?", self.mask, ".",  text_a], []
+        elif self.pattern_id == 6:
+            # pattern
+            # "Is the topic livestock health and well-being? [MASK]. <content>"
+            return ["Is the topic livestock health and well-being?", self.mask, ".",  text_a], []
         else:
             raise ValueError(
                 "No pattern implemented for id {}".format(self.pattern_id))
